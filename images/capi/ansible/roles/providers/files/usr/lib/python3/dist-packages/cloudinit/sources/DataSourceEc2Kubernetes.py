@@ -1,14 +1,19 @@
 # This file is part of cloud-init. See LICENSE file for license information.
 
 import logging
+import os
 
 from cloudinit import handlers, helpers, sources, util
+from cloudinit.cmd.devel import read_cfg_paths
 from cloudinit.handlers.boot_hook import BootHookPartHandler
 from cloudinit.handlers.jinja_template import JinjaTemplatePartHandler
 from cloudinit.handlers.cloud_config import CloudConfigPartHandler
 from cloudinit.handlers.shell_script import ShellScriptPartHandler
 from cloudinit.settings import PER_ALWAYS
 from cloudinit.sources import DataSourceEc2
+from cloudinit.handlers.jinja_template import (
+    render_jinja_payload_from_file,
+)
 
 LOG = logging.getLogger(__name__)
 
@@ -37,12 +42,14 @@ class BootHookPartHandlerModified(BootHookPartHandler):
 
 
 class DataSourceEc2Kubernetes(DataSourceEc2.DataSourceEc2):
+
     def _get_data(self):
         super()._get_data()
 
         # Get initial user-data
         user_data_msg = self.get_userdata(True)
         LOG.info("User-data received:[\n%s]", user_data_msg)
+        self.persist_instance_data()
 
         # This is required to get path of the instance
         self.paths.datasource = self
@@ -80,17 +87,36 @@ class DataSourceEc2Kubernetes(DataSourceEc2.DataSourceEc2):
             },
         )
         LOG.info("User-data before update:[\n%s]", self.userdata_raw)
-
+        secret_userdata="/etc/secret-userdata.txt"
         # Get the boothook output, save it as user-data
         # TODO: work with upstream to put this somewhere more sensible like:
         # /var/lib/cloud/instances/{{v1.instance_id}}/ec2-kubernetes-userdata.txt
-        self.userdata_raw = util.load_text_file("/etc/secret-userdata.txt")
+        userdata_raw = util.load_text_file(secret_userdata)
         LOG.info("Secret user-data:[\n%s]", self.userdata_raw)
+
+        uid = os.getuid()
+        redacted_data_fn = self.paths.get_runpath("instance_data")
+        if uid == 0:
+            instance_data_fn = self.paths.get_runpath("instance_data_sensitive")
+            if not os.path.exists(instance_data_fn):
+                LOG.warning(
+                    "Missing root-readable %s. Using redacted %s instead.",
+                    instance_data_fn,
+                    redacted_data_fn,
+                )
+                instance_data_fn = redacted_data_fn
+        else:
+            instance_data_fn = redacted_data_fn
+        rendered_payload = render_jinja_payload_from_file(
+            payload=userdata_raw,
+            payload_fn=secret_userdata,
+            instance_data_file=instance_data_fn,
+        )
+        self.userdata_raw=rendered_payload
         return True
 
 
 class DataSourceEc2KubernetesLocal(DataSourceEc2Kubernetes):
-#    perform_dhcp_setup = True  # Use dhcp before querying metadata
     def _get_data(self):
         return False
 
