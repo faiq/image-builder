@@ -37,7 +37,7 @@ class BootHookPartHandlerModified(BootHookPartHandler):
                 "longer necessary and is temporarily circumvented by "
                 "cloud-init. This will be a hard error in the future."
             )
-        payload.replace("systemctl restart cloud-init", "cloud-init init --local && cloud-init init && cloud-init modules --mode=config && cloud-init modules --mode=final")
+        payload = payload[:restart_index] + "#" + payload[restart_index:]
         super().handle_part(data, ctype, filename, payload, frequency)
 
 
@@ -112,19 +112,19 @@ class DataSourceEc2Kubernetes(DataSourceEc2.DataSourceEc2):
             payload_fn=secret_userdata,
             instance_data_file=instance_data_fn,
         )
+        util.write_file("/etc/cloud/cloud.cfg.d/99_kubeadm_bootstrap.cfg", rendered_payload)
         self.userdata_raw=rendered_payload
         return True
 
 
 class DataSourceEc2KubernetesLocal(DataSourceEc2Kubernetes):
     def _get_data(self):
-        return False
+        return super(DataSourceEc2KubernetesLocal, self).get_data()
 
 
 # Used to match classes to dependencies
 datasources = [
     (
-        # Run at init-local
         DataSourceEc2KubernetesLocal,
         (sources.DEP_FILESYSTEM,),
     ),
