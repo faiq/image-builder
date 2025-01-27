@@ -37,7 +37,7 @@ class BootHookPartHandlerModified(BootHookPartHandler):
                 "longer necessary and is temporarily circumvented by "
                 "cloud-init. This will be a hard error in the future."
             )
-            payload = payload[:restart_index] + "#" + payload[restart_index:]
+        payload.replace("systemctl restart cloud-init", "cloud-init init --local && cloud-init init && cloud-init modules --mode=config && cloud-init modules --mode=final")
         super().handle_part(data, ctype, filename, payload, frequency)
 
 
